@@ -1,0 +1,21 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "device_state.c"
+        "storage.c"
+        "lcd_ili9341.c"
+        "motor.c"
+        "button_task.c"
+        "motor_task.c"
+        "net_task.c"
+        "display_task.c"
+    INCLUDE_DIRS "."
+    PRIV_REQUIRES
+        driver
+        esp_timer
+        esp_wifi
+        esp_netif
+        esp_event
+        nvs_flash
+        lwip
+)

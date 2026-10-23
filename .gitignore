@@ -1,0 +1,20 @@
+
+# ESP-IDF generated build output
+build/
+managed_components/
+
+# Python cache
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local secrets
+.env
+.env.*
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

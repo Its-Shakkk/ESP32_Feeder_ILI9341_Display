@@ -1,0 +1,19 @@
+menu "Feeder Configuration"
+
+    config FEEDER_WIFI_SSID
+        string "WiFi SSID"
+        default "People Tech"
+
+    config FEEDER_WIFI_PASSWORD
+        string "WiFi password"
+        default "PT!Secure#505@432e"
+
+    config FEEDER_NTP_SERVER
+        string "NTP server"
+        default "pool.ntp.org"
+
+    config FEEDER_TIMEZONE
+        string "POSIX timezone string"
+        default "IST-5:30"
+
+endmenu
