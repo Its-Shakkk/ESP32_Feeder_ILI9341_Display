@@ -12,7 +12,7 @@ void device_state_init(void)
 {
     memset(&g_dev, 0, sizeof(g_dev));
     g_dev.feed1.speed_percent = 50;
-    g_dev.battery_percent = 78.0f;
+    g_dev.battery_percent = 18.0f;
 
     g_state_mutex  = xSemaphoreCreateMutex();
     g_button_queue = xQueueCreate(BUTTON_QUEUE_LEN, sizeof(button_event_t));

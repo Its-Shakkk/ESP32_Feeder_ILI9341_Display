@@ -5,7 +5,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "app_config.h"
-#include "motor.h"
+#include "motor_hw.h"
 
 static const char *TAG = "motor";
 

@@ -31,7 +31,7 @@ typedef struct {
     uint16_t interval_min;
     uint16_t interval_sec;
     uint16_t run_time_sec;
-    uint16_t quantity_kg;
+    uint32_t quantity_g;                // hopper size set in Add Feed (grams, shown as kg)
     uint32_t consumption_per_run_g;     // grams per feed run
     uint8_t  speed_percent;
     bool     enabled;
@@ -41,6 +41,7 @@ typedef struct {
     feed_config_t feed1;
     uint32_t today_g;
     uint32_t lifetime_g;
+    uint32_t remaining_g;               // feed left in the hopper (refilled by Add Feed)
 
     // runtime (not persisted)
     bool     motor_on;

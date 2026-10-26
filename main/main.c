@@ -4,13 +4,13 @@
 #include "app_config.h"
 #include "device_state.h"
 #include "lcd_ili9341.h"
-#include "motor.h"
+#include "motor_hw.h"
 
 static const char *TAG = "feeder";
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "Feeder controller starting");
+    ESP_LOGI(TAG, "Feeder controller starting (v%s)", APP_VERSION);
 
     // 1. Shared RTOS objects (state mutex, button queue, event group)
     device_state_init();

@@ -16,6 +16,7 @@ static void load_defaults_locked(void)
     g_dev.feed1.speed_percent = 50;
     g_dev.today_g = 0;
     g_dev.lifetime_g = 0;
+    g_dev.remaining_g = 0;
     g_dev.history[0] = 0;
 }
 
@@ -38,12 +39,20 @@ void storage_init(void)
         if (nvs_get_u32(h, "intMin", &v) == ESP_OK) g_dev.feed1.interval_min = v % 100;
         if (nvs_get_u32(h, "intSec", &v) == ESP_OK) g_dev.feed1.interval_sec = v % 60;
         if (nvs_get_u32(h, "runSec", &v) == ESP_OK) g_dev.feed1.run_time_sec = v;
-        if (nvs_get_u32(h, "qtyKg",  &v) == ESP_OK) g_dev.feed1.quantity_kg = v;
+        if (nvs_get_u32(h, "qtyG",   &v) == ESP_OK) g_dev.feed1.quantity_g = v;
+        else if (nvs_get_u32(h, "qtyKg", &v) == ESP_OK) g_dev.feed1.quantity_g = v * 1000UL;   // older firmware
         if (nvs_get_u32(h, "consG",  &v) == ESP_OK) g_dev.feed1.consumption_per_run_g = v;
         if (nvs_get_u32(h, "speed",  &v) == ESP_OK && v <= 100) g_dev.feed1.speed_percent = v;
         if (nvs_get_u8 (h, "enabled",&b) == ESP_OK) g_dev.feed1.enabled = b;
         if (nvs_get_u32(h, "todayG", &v) == ESP_OK) g_dev.today_g = v;
         if (nvs_get_u32(h, "lifeG",  &v) == ESP_OK) g_dev.lifetime_g = v;
+        if (nvs_get_u32(h, "remG",   &v) == ESP_OK) {
+            g_dev.remaining_g = v;
+        } else {
+            // Upgrading from firmware without a stored remaining value: use the old formula once.
+            uint32_t total = g_dev.feed1.quantity_g;
+            g_dev.remaining_g = (total > g_dev.lifetime_g) ? total - g_dev.lifetime_g : 0;
+        }
         size_t len = sizeof(g_dev.history);
         if (nvs_get_str(h, "history", g_dev.history, &len) != ESP_OK) g_dev.history[0] = 0;
         nvs_close(h);
@@ -63,12 +72,13 @@ void storage_save(void)
         nvs_set_u32(h, "intMin", s_snap.feed1.interval_min);
         nvs_set_u32(h, "intSec", s_snap.feed1.interval_sec);
         nvs_set_u32(h, "runSec", s_snap.feed1.run_time_sec);
-        nvs_set_u32(h, "qtyKg",  s_snap.feed1.quantity_kg);
+        nvs_set_u32(h, "qtyG",   s_snap.feed1.quantity_g);
         nvs_set_u32(h, "consG",  s_snap.feed1.consumption_per_run_g);
         nvs_set_u32(h, "speed",  s_snap.feed1.speed_percent);
         nvs_set_u8 (h, "enabled",s_snap.feed1.enabled);
         nvs_set_u32(h, "todayG", s_snap.today_g);
         nvs_set_u32(h, "lifeG",  s_snap.lifetime_g);
+        nvs_set_u32(h, "remG",   s_snap.remaining_g);
         nvs_set_str(h, "history", s_snap.history);
         esp_err_t e = nvs_commit(h);
         if (e != ESP_OK) ESP_LOGE(TAG, "nvs_commit failed: %s", esp_err_to_name(e));

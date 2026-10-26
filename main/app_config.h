@@ -4,13 +4,15 @@
 // Hardware / resolution configuration  -  ESP32 WROOM-1 DevKit
 // =========================================================================
 
+#define APP_VERSION  "1.0.0"
+
 // --- Display Resolution (landscape) ---
 #define LCD_H_RES       320
 #define LCD_V_RES       240
 
 // ILI9341 MADCTL for landscape: MV | BGR (0x28). If the picture is mirrored or
 // upside-down on your panel use 0xE8 (180 deg), 0x88 or 0x48.
-#define LCD_MADCTL      0x48
+#define LCD_MADCTL      0x40
 
 // LCD_MADCTL	Orientation (Adafruit rotation)	Fits the 320×240 UI?
 // 0x28	Landscape (rotation 1), my default	Yes

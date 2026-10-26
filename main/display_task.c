@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include "esp_log.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
@@ -7,7 +8,7 @@
 #include "app_config.h"
 #include "device_state.h"
 #include "lcd_ili9341.h"
-#include "motor.h"
+#include "motor_hw.h"
 
 static const char *TAG = "ui";
 
@@ -36,7 +37,7 @@ static const char *menu_items[] = { "Motor Speed", "Add Feed", "Total Consumptio
 static int s_menu_cursor, s_reset_cursor;
 
 // Add Feed temp values
-static int s_add_field, s_temp_qty_kg, s_temp_run_time, s_temp_consum_g;
+static int s_add_field, s_temp_qty_g, s_temp_run_time, s_temp_consum_g;
 // Motor speed temp values
 static int s_temp_speed = 50;
 static char s_last_speed_str[10] = "";
@@ -46,6 +47,7 @@ static int  s_last_fill_w = -1;
 static float s_last_battery = -1.0f;
 static int   s_last_wifi = -1;
 static int   s_last_motor_state = -1;
+static int   s_last_empty = -1;
 static char  s_last_int_min[10], s_last_int_sec[10], s_last_run[15];
 static char  s_last_qty[15], s_last_cons[15], s_last_rpm[15];
 static char  s_last_add_qty[15], s_last_add_time[15], s_last_add_cons[15];
@@ -53,6 +55,13 @@ static char  s_last_add_qty[15], s_last_add_time[15], s_last_add_cons[15];
 // =========================================================================
 // DRAWING HELPERS
 // =========================================================================
+// grams -> "12.3 kg" (rounded to 0.1 kg)
+static void fmt_kg(char *buf, size_t n, uint32_t g)
+{
+    uint32_t tenths = (g + 50) / 100;
+    snprintf(buf, n, "%lu.%lu kg", (unsigned long)(tenths / 10), (unsigned long)(tenths % 10));
+}
+
 static void put(int x, int y, uint8_t size, uint16_t color, const char *s)
 {
     lcd_draw_text(x, y, size, color, BG_COLOR, s);
@@ -121,21 +130,21 @@ static void draw_home_static(const device_state_t *s)
     lcd_fill_screen(BG_COLOR);
     draw_header_full(s);
 
-    put(10, 42,  2, TEXT_CYAN, "FEED INTERVAL");
-    put(10, 67,  2, TEXT_CYAN, "RUN TIME");
-    put(10, 92,  2, TEXT_CYAN, "MOTOR");
-    put(10, 117, 2, TEXT_CYAN, "FEED QTY");
-    put(10, 142, 2, TEXT_CYAN, "CONSUM/FEED");
-    put(10, 167, 2, TEXT_CYAN, "MOTOR RPM");
+    put(10, 42,  2, TEXT_YELLOW, "FEED INTERVAL");
+    put(10, 67,  2, TEXT_YELLOW, "RUN TIME");
+    put(10, 92,  2, TEXT_YELLOW, "MOTOR");
+    put(10, 117, 2, TEXT_YELLOW, "FEED QTY");
+    put(10, 142, 2, TEXT_YELLOW, "CONSUM/FEED");
+    put(10, 167, 2, TEXT_YELLOW, "MOTOR RPM");
 
     for (int y = 42; y <= 167; y += 25) put(175, y, 2, TEXT_CYAN, ":");
 
     lcd_hline(0, 200, 320, BORDER_COLOR);
-    put(100, 215, 1, TEXT_CYAN, "Hold OK for Menu");
 
     s_last_int_min[0] = s_last_int_sec[0] = s_last_run[0] = 0;
     s_last_qty[0] = s_last_cons[0] = s_last_rpm[0] = 0;
     s_last_motor_state = -1;
+    s_last_empty = -1;          // footer is drawn by update_home_dynamic()
 }
 
 static void update_home_dynamic(const device_state_t *s, bool force)
@@ -145,6 +154,19 @@ static void update_home_dynamic(const device_state_t *s, bool force)
     // header (partial updates)
     if (s->wifi_connected != s_last_wifi) draw_header_wifi(s->wifi_connected);
     if (s->battery_percent != s_last_battery) draw_header_battery(s->battery_percent);
+
+    // footer: big red warning while the hopper is empty, otherwise the menu hint
+    bool empty = (s->remaining_g == 0);
+    if (force || (int)empty != s_last_empty) {
+        lcd_fill_rect(0, 201, 320, 39, BG_COLOR);
+        if (empty) {
+            put(61, 204, 3, TEXT_RED, "REFILL FEED");
+            put(106, 230, 1, TEXT_CYAN, "Hold OK > Add Feed");
+        } else {
+            put(100, 215, 1, TEXT_CYAN, "Hold OK for Menu");
+        }
+        s_last_empty = empty;
+    }
 
     // FEED INTERVAL  00m 00s
     char min_buf[8], sec_buf[8];
@@ -179,15 +201,15 @@ static void update_home_dynamic(const device_state_t *s, bool force)
 
     // FEED QTY
     char qty_buf[15];
-    snprintf(qty_buf, sizeof(qty_buf), "%d kg", s->feed1.quantity_kg);
+    fmt_kg(qty_buf, sizeof(qty_buf), s->feed1.quantity_g);
     if (force || strcmp(qty_buf, s_last_qty) != 0) {
         draw_value(HOME_SMALL_X, 117, 2, 10, qty_buf, TEXT_WHITE);
         strcpy(s_last_qty, qty_buf);
     }
 
-    // CONSUM/FEED  (grams)
+    // CONSUM/FEED  (kg, 0.1 resolution)
     char cons_buf[15];
-    snprintf(cons_buf, sizeof(cons_buf), "%lu g", (unsigned long)s->feed1.consumption_per_run_g);
+    fmt_kg(cons_buf, sizeof(cons_buf), s->feed1.consumption_per_run_g);
     if (force || strcmp(cons_buf, s_last_cons) != 0) {
         draw_value(HOME_SMALL_X, 142, 2, 11, cons_buf, TEXT_WHITE);
         strcpy(s_last_cons, cons_buf);
@@ -303,7 +325,7 @@ static void draw_add_feed_static(void)
 
     put(20, 60,  1, TEXT_CYAN, "Quantity (kg):");
     put(20, 90,  1, TEXT_CYAN, "Run Time (sec):");
-    put(20, 120, 1, TEXT_CYAN, "Consum (g/run):");
+    put(20, 120, 1, TEXT_CYAN, "Consum (kg/run):");
 
     put(20, 170, 1, TEXT_WHITE, "RIGHT: Next Field");
     put(20, 190, 1, TEXT_WHITE, "UP/DOWN: Adjust Value");
@@ -315,7 +337,7 @@ static void draw_add_feed_static(void)
 static void update_add_feed_dynamic(bool force)
 {
     char b[16];
-    snprintf(b, sizeof(b), "%d kg", s_temp_qty_kg);
+    fmt_kg(b, sizeof(b), (uint32_t)s_temp_qty_g);
     if (force || strcmp(b, s_last_add_qty) != 0) {
         draw_value(160, 60, 1, 12, b, s_add_field == 0 ? TEXT_YELLOW : TEXT_WHITE);
         strcpy(s_last_add_qty, b);
@@ -325,7 +347,7 @@ static void update_add_feed_dynamic(bool force)
         draw_value(160, 90, 1, 12, b, s_add_field == 1 ? TEXT_YELLOW : TEXT_WHITE);
         strcpy(s_last_add_time, b);
     }
-    snprintf(b, sizeof(b), "%d g", s_temp_consum_g);
+    fmt_kg(b, sizeof(b), (uint32_t)s_temp_consum_g);
     if (force || strcmp(b, s_last_add_cons) != 0) {
         draw_value(160, 120, 1, 12, b, s_add_field == 2 ? TEXT_YELLOW : TEXT_WHITE);
         strcpy(s_last_add_cons, b);
@@ -346,17 +368,15 @@ static void draw_total_consumption_screen(void)
     lcd_hline(0, 35, 320, BORDER_COLOR);
 
     put(20, 60, 1, TEXT_CYAN, "Today:");
-    snprintf(b, sizeof(b), "%lu g", (unsigned long)s.today_g);
+    fmt_kg(b, sizeof(b), s.today_g);
     put(120, 60, 1, TEXT_WHITE, b);
 
     put(20, 90, 1, TEXT_CYAN, "Lifetime:");
-    snprintf(b, sizeof(b), "%lu g", (unsigned long)s.lifetime_g);
+    fmt_kg(b, sizeof(b), s.lifetime_g);
     put(120, 90, 1, TEXT_WHITE, b);
 
     put(20, 120, 1, TEXT_CYAN, "Remaining:");
-    uint32_t total_g = (uint32_t)s.feed1.quantity_kg * 1000UL;
-    uint32_t remaining_g = (total_g > s.lifetime_g) ? total_g - s.lifetime_g : 0;
-    snprintf(b, sizeof(b), "%lu g", (unsigned long)remaining_g);
+    fmt_kg(b, sizeof(b), s.remaining_g);
     put(120, 120, 1, TEXT_WHITE, b);
 
     put(10, 220, 1, TEXT_WHITE, "LEFT: Back");
@@ -386,7 +406,7 @@ static void draw_history_screen(void)
             memcpy(val, colon + 1, vl); val[vl] = 0;
             put(20, start_y + index * step_y, 1, TEXT_WHITE, date);
             char line[24];
-            snprintf(line, sizeof(line), "%s g", val);
+            fmt_kg(line, sizeof(line), (uint32_t)strtoul(val, NULL, 10));
             put(150, start_y + index * step_y, 1, TEXT_WHITE, line);
             index++;
         }
@@ -456,6 +476,11 @@ static void handle_home(button_event_t ev)
             f->enabled = true;
             start = true;
         }
+        if (start && g_dev.remaining_g == 0) {
+            // Hopper empty: the schedule is armed but the motor must not run.
+            g_dev.motor_on = false;
+            start = false;
+        }
         speed = f->speed_percent;
         STATE_UNLOCK();
 
@@ -524,9 +549,9 @@ static void handle_menu(button_event_t ev)
             break;
         case 1:
             s_add_field = 0;
-            s_temp_qty_kg = s.feed1.quantity_kg;
+            s_temp_qty_g = (int)(((s.feed1.quantity_g + 50) / 100) * 100);
             s_temp_run_time = s.feed1.run_time_sec;
-            s_temp_consum_g = s.feed1.consumption_per_run_g;
+            s_temp_consum_g = (int)(((s.feed1.consumption_per_run_g + 50) / 100) * 100);
             s_ui = UI_ADD_FEED;
             draw_add_feed_static();
             update_add_feed_dynamic(true);
@@ -546,33 +571,37 @@ static void handle_add_feed(button_event_t ev)
         update_add_feed_dynamic(true);
         return;
     case BTN_EVT_UP:
-        if (s_add_field == 0)      s_temp_qty_kg   = clampi(s_temp_qty_kg + 1, 0, FEED_QTY_MAX_KG);
+        if (s_add_field == 0)      s_temp_qty_g   = clampi(s_temp_qty_g + 100, 0, FEED_QTY_MAX_KG * 1000);
         else if (s_add_field == 1) s_temp_run_time = clampi(s_temp_run_time + 1, 1, FEED_RUN_MAX_SEC);
-        else                       s_temp_consum_g = clampi(s_temp_consum_g + 1, 0, FEED_CONSUM_MAX_G);
+        else                       s_temp_consum_g = clampi(s_temp_consum_g + 100, 0, FEED_CONSUM_MAX_G);
         update_add_feed_dynamic(false);
         return;
     case BTN_EVT_DOWN:
-        if (s_add_field == 0)      s_temp_qty_kg   = clampi(s_temp_qty_kg - 1, 0, FEED_QTY_MAX_KG);
+        if (s_add_field == 0)      s_temp_qty_g   = clampi(s_temp_qty_g - 100, 0, FEED_QTY_MAX_KG * 1000);
         else if (s_add_field == 1) s_temp_run_time = clampi(s_temp_run_time - 1, 1, FEED_RUN_MAX_SEC);
-        else                       s_temp_consum_g = clampi(s_temp_consum_g - 1, 0, FEED_CONSUM_MAX_G);
+        else                       s_temp_consum_g = clampi(s_temp_consum_g - 100, 0, FEED_CONSUM_MAX_G);
         update_add_feed_dynamic(false);
         return;
     case BTN_EVT_UP_LONG:
-        if (s_add_field == 0) s_temp_qty_kg   = clampi(s_temp_qty_kg + 10, 0, FEED_QTY_MAX_KG);
+        if (s_add_field == 0) s_temp_qty_g   = clampi(s_temp_qty_g + 10000, 0, FEED_QTY_MAX_KG * 1000);
         if (s_add_field == 1) s_temp_run_time = clampi(s_temp_run_time + 10, 1, FEED_RUN_MAX_SEC);
-        if (s_add_field == 2) s_temp_consum_g = clampi(s_temp_consum_g + 10, 0, FEED_CONSUM_MAX_G);
+        if (s_add_field == 2) s_temp_consum_g = clampi(s_temp_consum_g + 1000, 0, FEED_CONSUM_MAX_G);
         update_add_feed_dynamic(false);
         return;
     case BTN_EVT_DOWN_LONG:
-        if (s_add_field == 0) s_temp_qty_kg   = clampi(s_temp_qty_kg - 10, 0, FEED_QTY_MAX_KG);
+        if (s_add_field == 0) s_temp_qty_g   = clampi(s_temp_qty_g - 10000, 0, FEED_QTY_MAX_KG * 1000);
         if (s_add_field == 1) s_temp_run_time = clampi(s_temp_run_time - 10, 1, FEED_RUN_MAX_SEC);
-        if (s_add_field == 2) s_temp_consum_g = clampi(s_temp_consum_g - 10, 0, FEED_CONSUM_MAX_G);
+        if (s_add_field == 2) s_temp_consum_g = clampi(s_temp_consum_g - 1000, 0, FEED_CONSUM_MAX_G);
         update_add_feed_dynamic(false);
         return;
     case BTN_EVT_LEFT:
     case BTN_EVT_OK_SHORT:
         STATE_LOCK();
-        g_dev.feed1.quantity_kg = s_temp_qty_kg;
+        // OK = "feed added": hopper is set to the quantity shown, even if the number is unchanged.
+        // LEFT = just go back: the hopper is only refilled if the quantity was edited.
+        if (ev == BTN_EVT_OK_SHORT || g_dev.feed1.quantity_g != (uint32_t)s_temp_qty_g)
+            g_dev.remaining_g = (uint32_t)s_temp_qty_g;
+        g_dev.feed1.quantity_g = (uint32_t)s_temp_qty_g;
         g_dev.feed1.run_time_sec = s_temp_run_time;
         g_dev.feed1.consumption_per_run_g = s_temp_consum_g;
         STATE_UNLOCK();

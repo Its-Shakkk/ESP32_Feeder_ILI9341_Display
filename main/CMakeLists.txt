@@ -4,7 +4,7 @@ idf_component_register(
         "device_state.c"
         "storage.c"
         "lcd_ili9341.c"
-        "motor.c"
+        "motor_hw.c"
         "button_task.c"
         "motor_task.c"
         "net_task.c"
